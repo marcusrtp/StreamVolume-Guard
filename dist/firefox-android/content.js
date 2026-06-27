@@ -15,6 +15,7 @@
   const PROCESSED_ATTR = "streamVolumeGuardProcessed";
   const ERROR_ATTR = "streamVolumeGuardError";
   const normalizers = new Map();
+  const processingMedia = new Set();
 
   let settings = Settings.normalizeSettings();
   let observer = null;
@@ -98,6 +99,9 @@
         // Best-effort cleanup only.
       }
       normalizers.delete(media);
+      processingMedia.delete(media);
+      delete media.dataset[PROCESSED_ATTR];
+      delete media.dataset[ERROR_ATTR];
     });
   }
 
@@ -150,12 +154,14 @@
 
   async function processMedia(media) {
     if (normalizers.has(media)) return;
+    if (processingMedia.has(media)) return;
     if (media.dataset[PROCESSED_ATTR] === "true") {
       updateState({ skippedAlreadyProcessed: state.skippedAlreadyProcessed + 1 });
       return;
     }
 
     let normalizer = null;
+    processingMedia.add(media);
     try {
       normalizer = Normalizer.createMediaNormalizer(media, settings, {
         onState: handleNormalizerState
@@ -171,6 +177,8 @@
         media.dataset[ERROR_ATTR] = "true";
       }
       updateState({ lastError: error.message });
+    } finally {
+      processingMedia.delete(media);
     }
   }
 

@@ -282,10 +282,83 @@ test("domain profile selection keeps the user target loudness", () => {
   assert.equal(runtime.targetRmsDb, -15.5);
 });
 
+test("settings clamps target loudness at the shared safe bounds", () => {
+  const WLG = loadCore();
+
+  assert.equal(WLG.Settings.normalizeSettings({ targetRmsDb: -80 }).targetRmsDb, -36);
+  assert.equal(WLG.Settings.normalizeSettings({ targetRmsDb: -5 }).targetRmsDb, -14);
+  assert.equal(WLG.Settings.normalizeSettings({ targetRmsDb: -21.5 }).targetRmsDb, -21.5);
+});
+
+test("content script guards concurrent media processing and resets detached markers", () => {
+  const contentSource = fs.readFileSync(path.join(root, "content.js"), "utf8");
+
+  assert.match(contentSource, /const processingMedia = new Set\(\);/);
+  assert.match(contentSource, /if \(processingMedia\.has\(media\)\) return;/);
+  assert.match(contentSource, /processingMedia\.add\(media\);/);
+  assert.match(contentSource, /finally\s*{[\s\S]*processingMedia\.delete\(media\);[\s\S]*}/);
+  assert.match(contentSource, /delete media\.dataset\[PROCESSED_ATTR\];/);
+  assert.match(contentSource, /delete media\.dataset\[ERROR_ATTR\];/);
+});
+
+test("tab capture startup cleans up failed offscreen streams", () => {
+  const offscreenSource = fs.readFileSync(path.join(root, "offscreen", "offscreen.js"), "utf8");
+
+  assert.match(offscreenSource, /let stream = null;/);
+  assert.match(offscreenSource, /let audio = null;/);
+  assert.match(offscreenSource, /let normalizer = null;/);
+  assert.match(offscreenSource, /if \(captures\.has\(tabId\)\) {[\s\S]*stopCapture\(tabId\);[\s\S]*}/);
+  assert.match(offscreenSource, /if \(normalizer\) normalizer\.stop\(\);/);
+  assert.match(offscreenSource, /if \(stream\) stream\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);/);
+  assert.match(offscreenSource, /audio\.srcObject = null;/);
+});
+
+test("background refresh stops active capture when a domain becomes excluded", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(backgroundSource, /Settings\.isDomainExcluded\(site, savedSettings\)/);
+  assert.match(backgroundSource, /WLG_STOP_TAB_CAPTURE/);
+  assert.match(backgroundSource, /captureStatuses\.delete\(tab\.id\)/);
+  assert.match(backgroundSource, /excluded:\s*true/);
+  assert.match(backgroundSource, /updatedCaptureStatus \|\| contentResponse/);
+});
+
+test("background uses offscreen status responses for capture updates", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(backgroundSource, /const captureResponse = await sendRuntimeMessage\(\{ target: "offscreen", type: "WLG_SET_CAPTURE_PANIC"/);
+  assert.match(backgroundSource, /updatedCaptureStatus = captureResponse && captureResponse\.status \? captureResponse\.status : null;/);
+  assert.match(backgroundSource, /const captureResponse = await sendRuntimeMessage\(\{ target: "offscreen", type: "WLG_UPDATE_CAPTURE_SETTINGS"/);
+  assert.match(backgroundSource, /return mergeStatus\(tab, updatedCaptureStatus \|\| contentResponse\);/);
+});
+
+test("options distinguishes save failure from refresh failure", () => {
+  const optionsSource = fs.readFileSync(path.join(root, "options", "options.js"), "utf8");
+  const enMessages = readJson("_locales/en/messages.json");
+  const frMessages = readJson("_locales/fr/messages.json");
+
+  assert.match(optionsSource, /optionsApplyErrorStatus/);
+  assert.match(optionsSource, /optionsSaveErrorStatus/);
+  assert.match(optionsSource, /setSaveState\(i18n\("optionsSaveErrorStatus", "sauvegarde impossible"\)\)/);
+  assert.equal(enMessages.optionsSaveErrorStatus.message, "save failed");
+  assert.equal(frMessages.optionsSaveErrorStatus.message, "sauvegarde impossible");
+});
+
 test("public test page uses real media blobs instead of MediaStreamDestination", () => {
   const html = fs.readFileSync(path.join(root, "test-page.html"), "utf8");
-  assert.match(html, /createSineWaveBlob/);
+  assert.match(html, /createSegmentedSineWaveBlob/);
+  assert.match(html, /new Blob\(\[buffer\], \{ type: "audio\/wav" \}\)/);
   assert.doesNotMatch(html, /createMediaStreamDestination/);
+});
+
+test("browser smoke bakes test loudness into WAV data instead of element volume", () => {
+  const smokeHtml = fs.readFileSync(path.join(root, "tests", "technical-smoke.html"), "utf8");
+
+  assert.match(smokeHtml, /createSineWaveBlob\(440, amplitude, durationSeconds \|\| 8\)/);
+  assert.match(smokeHtml, /audio\.volume = 1;/);
+  assert.doesNotMatch(smokeHtml, /audio\.volume = amplitude;/);
+  assert.match(smokeHtml, /const VERY_LOUD_AMPLITUDE = 0\.8912509381337456;/);
+  assert.match(smokeHtml, /expectedRmsDb: -4/);
 });
 
 test("manual local server exists and README documents the recommended URL flow", () => {
@@ -311,6 +384,22 @@ test("public test page alternation gives the normalizer enough time to settle", 
   assert.ok(Number(intervalMatch[1]) >= 6000, "alternation should keep each level for at least 6 seconds");
   assert.ok(Number(durationMatch[1]) >= 6, "generated WAV should be long enough for each level");
   assert.ok(Number(demoStepMatch[1]) >= 8000, "before/after demo should leave enough time for perceived equalization");
+});
+
+test("public test page avoids raw loop seams during 8 second alternation", () => {
+  const html = fs.readFileSync(path.join(root, "test-page.html"), "utf8");
+  const intervalMatch = html.match(/const PULSE_INTERVAL_MS = (\d+);/);
+  const durationMatch = html.match(/const TEST_TONE_SECONDS = (\d+);/);
+
+  assert.ok(intervalMatch, "test page should expose PULSE_INTERVAL_MS");
+  assert.ok(durationMatch, "test page should expose TEST_TONE_SECONDS");
+  assert.ok(
+    Number(durationMatch[1]) * 1000 > Number(intervalMatch[1]),
+    "generated tone should be longer than each alternation step to avoid a loop seam"
+  );
+  assert.match(html, /const TONE_EDGE_FADE_MS = \d+;/);
+  assert.match(html, /edgeFadeSamples/);
+  assert.match(html, /edgeFade/);
 });
 
 test("public test page alternation cycles through quiet loud and very loud", () => {
@@ -344,7 +433,7 @@ test("public test page includes a very loud stress tone", () => {
 
   assert.match(html, /id="veryLoudButton"/);
   assert.match(html, /Son très fort/);
-  assert.match(html, /const VERY_LOUD_AMPLITUDE = 1;/);
+  assert.match(html, /const VERY_LOUD_AMPLITUDE = 0\.8912509381337456;/);
 });
 
 test("public test page uses requested single-button loudness controls", () => {
@@ -352,7 +441,7 @@ test("public test page uses requested single-button loudness controls", () => {
 
   assert.match(html, /const QUIET_AMPLITUDE = 0\.001;/);
   assert.match(html, /const LOUD_AMPLITUDE = 0\.01001186529700907;/);
-  assert.match(html, /const VERY_LOUD_AMPLITUDE = 1;/);
+  assert.match(html, /const VERY_LOUD_AMPLITUDE = 0\.8912509381337456;/);
   assert.doesNotMatch(html, /MEDIUM_AMPLITUDE/);
   assert.match(html, />Démarrer</);
   assert.match(html, />Son faible</);
@@ -382,10 +471,10 @@ test("public test page tones match requested dB targets", () => {
   const loudRmsDb = rmsDbFor("LOUD");
   const veryLoudRmsDb = rmsDbFor("VERY_LOUD");
   assert.ok(Math.abs(quietRmsDb - -63) <= 0.1, "quiet should be -63 dB RMS");
-  assert.ok(Math.abs(veryLoudRmsDb - -3) <= 0.1, "very loud should be -3 dB RMS");
+  assert.ok(Math.abs(veryLoudRmsDb - -4) <= 0.1, "very loud should keep -1 dBFS headroom");
   assert.ok(Math.abs(loudRmsDb - -43) <= 0.1, "loud should be -43 dB RMS");
   assert.ok(Math.abs(loudRmsDb - quietRmsDb - 20) <= 0.1, "loud should stay 20 dB above quiet");
-  assert.ok(Math.abs(veryLoudRmsDb - loudRmsDb - 40) <= 0.1, "very loud should be 40 dB above loud");
+  assert.ok(Math.abs(veryLoudRmsDb - loudRmsDb - 39) <= 0.1, "very loud should stay clearly above loud with peak headroom");
 });
 
 test("public test page locks the approved test sound levels", () => {
@@ -394,7 +483,7 @@ test("public test page locks the approved test sound levels", () => {
   const approvedLevels = {
     QUIET: { amplitude: 0.001, rmsDb: -63 },
     LOUD: { amplitude: 0.01001186529700907, rmsDb: -43 },
-    VERY_LOUD: { amplitude: 1, rmsDb: -3.0102999566398125 }
+    VERY_LOUD: { amplitude: 0.8912509381337456, rmsDb: -4.010299956639812 }
   };
 
   Object.entries(approvedLevels).forEach(([name, expected]) => {
@@ -407,16 +496,18 @@ test("public test page locks the approved test sound levels", () => {
     assert.ok(Math.abs(rmsDb - expected.rmsDb) <= 0.1, `${name} RMS should stay locked`);
   });
 });
-test("public test page keeps a continuous media source before changing level", () => {
+test("public test page reuses media elements while seeking inside one continuous test tone", () => {
   const html = fs.readFileSync(path.join(root, "test-page.html"), "utf8");
   const playLevelBody = html.match(/async function playLevel\(media, amplitude, label, keepPulse\) \{([\s\S]*?)\n\n      async function playDemoSequence/);
 
   assert.ok(playLevelBody, "playLevel should exist");
-  assert.match(html, /function ensureMediaSource\(media\)/);
+  assert.match(html, /function ensureContinuousMediaSource\(media\)/);
+  assert.match(html, /async function seekMediaToLevel\(media, amplitude\)/);
   assert.match(html, /function rampMediaVolume\(media, targetVolume/);
-  assert.match(playLevelBody[1], /ensureMediaSource\(media\)/);
-  assert.match(playLevelBody[1], /await rampMediaVolume\(media, amplitude\)/);
-  assert.doesNotMatch(playLevelBody[1], /media\.src = nextUrl/);
+  assert.match(playLevelBody[1], /ensureContinuousMediaSource\(media\)/);
+  assert.match(playLevelBody[1], /await seekMediaToLevel\(media, amplitude\)/);
+  assert.match(playLevelBody[1], /await rampMediaVolume\(media, 1\)/);
+  assert.doesNotMatch(playLevelBody[1], /media = document\.createElement/);
   assert.doesNotMatch(playLevelBody[1], /stopMedia\(media\)/);
 });
 
@@ -424,11 +515,117 @@ test("public test page de-clicks manual level changes with a short volume ramp",
   const html = fs.readFileSync(path.join(root, "test-page.html"), "utf8");
 
   assert.match(html, /const VOLUME_RAMP_MS = 45;/);
+  assert.match(html, /const MAX_VOLUME_RAMP_MS = \d+;/);
+  assert.match(html, /const VOLUME_RAMP_DB_FOR_MAX_MS = \d+;/);
   assert.match(html, /const volumeRampTimers = new WeakMap\(\);/);
   assert.match(html, /function rampMediaVolume\(media, targetVolume/);
   assert.match(html, /requestAnimationFrame\(step\)/);
   assert.match(html, /Math\.cos\(Math\.PI \* progress\)/);
   assert.doesNotMatch(html, /media\.volume = amplitude;/);
+});
+
+test("public test page uses a longer ramp for large loudness jumps", () => {
+  const html = fs.readFileSync(path.join(root, "test-page.html"), "utf8");
+
+  assert.match(html, /function calculateVolumeRampDuration\(startVolume, targetVolume\)/);
+  assert.match(html, /20 \* Math\.log10\(safeTarget \/ safeStart\)/);
+  assert.match(html, /MAX_VOLUME_RAMP_MS - VOLUME_RAMP_MS/);
+  assert.match(html, /durationMs = calculateVolumeRampDuration\(startVolume, targetVolume\)/);
+});
+
+test("public test page resolves canceled volume ramps before starting another", () => {
+  const html = fs.readFileSync(path.join(root, "test-page.html"), "utf8");
+
+  assert.match(html, /function cancelVolumeRamp\(media\)/);
+  assert.match(html, /previousRamp\.resolve\(\);/);
+  assert.match(html, /volumeRampTimers\.set\(media, rampState\);/);
+  assert.match(html, /volumeRampTimers\.get\(media\) === rampState/);
+});
+
+test("public test page prepares media volume before playback to avoid raw clicks", () => {
+  const html = fs.readFileSync(path.join(root, "test-page.html"), "utf8");
+  const playLevelBody = html.match(/async function playLevel\(media, amplitude, label, keepPulse\) \{([\s\S]*?)\n\n      async function playDemoSequence/);
+
+  assert.ok(playLevelBody, "playLevel should exist");
+  assert.match(html, /function prepareMediaVolumeBeforePlay\(media\)/);
+  assert.match(playLevelBody[1], /prepareMediaVolumeBeforePlay\(media\);/);
+  assert.ok(
+    playLevelBody[1].indexOf("prepareMediaVolumeBeforePlay(media);") <
+      playLevelBody[1].indexOf("await media.play();"),
+    "volume should be prepared before playback starts"
+  );
+});
+
+test("public test page fades out media before pausing to avoid stop clicks", () => {
+  const html = fs.readFileSync(path.join(root, "test-page.html"), "utf8");
+  const stopMediaBody = html.match(/function stopMedia\(media\) \{([\s\S]*?)\n      \}/);
+
+  assert.ok(stopMediaBody, "stopMedia should exist");
+  assert.match(html, /function fadeOutAndPause\(media\)/);
+  assert.match(stopMediaBody[1], /fadeOutAndPause\(media\);/);
+  assert.doesNotMatch(stopMediaBody[1], /media\.pause\(\);/);
+});
+
+test("public test page bakes loudness into one continuous WAV to avoid source-switch crackle", () => {
+  const html = fs.readFileSync(path.join(root, "test-page.html"), "utf8");
+  const playLevelBody = html.match(/async function playLevel\(media, amplitude, label, keepPulse\) \{([\s\S]*?)\n\n      async function playDemoSequence/);
+
+  assert.ok(playLevelBody, "playLevel should exist");
+  assert.match(html, /let continuousToneUrl = null;/);
+  assert.match(html, /const TEST_TONE_SEGMENTS = \[/);
+  assert.match(html, /function getContinuousToneUrl\(\)/);
+  assert.match(html, /function createSegmentedSineWaveBlob\(frequency, segments\)/);
+  assert.match(html, /createSegmentedSineWaveBlob\(440, TEST_TONE_SEGMENTS\)/);
+  assert.doesNotMatch(html, /createSineWaveBlob\(440, 1, TEST_TONE_SECONDS\)/);
+  assert.doesNotMatch(html, /const toneUrls = new Map\(\);/);
+  assert.match(playLevelBody[1], /await seekMediaToLevel\(media, amplitude\);/);
+  assert.match(playLevelBody[1], /await rampMediaVolume\(media, 1\);/);
+  assert.doesNotMatch(playLevelBody[1], /await rampMediaVolume\(media, amplitude\);/);
+});
+
+test("public test page fades before seeking to another baked segment", () => {
+  const html = fs.readFileSync(path.join(root, "test-page.html"), "utf8");
+  const playLevelBody = html.match(/async function playLevel\(media, amplitude, label, keepPulse\) \{([\s\S]*?)\n\n      async function playDemoSequence/);
+
+  assert.ok(playLevelBody, "playLevel should exist");
+  const fadeIndex = playLevelBody[1].indexOf("await rampMediaVolume(media, 0);");
+  const sourceIndex = playLevelBody[1].indexOf("await seekMediaToLevel(media, amplitude);");
+
+  assert.ok(fadeIndex >= 0, "playLevel should fade out before seeking");
+  assert.ok(sourceIndex >= 0, "playLevel should seek to the requested level");
+  assert.ok(fadeIndex < sourceIndex, "fade out should happen before seeking");
+});
+
+test("public test page seeks to prepared segment offsets without changing src per click", () => {
+  const html = fs.readFileSync(path.join(root, "test-page.html"), "utf8");
+  const seekBody = html.match(/async function seekMediaToLevel\(media, amplitude\) \{([\s\S]*?)\n      \}/);
+  const playLevelBody = html.match(/async function playLevel\(media, amplitude, label, keepPulse\) \{([\s\S]*?)\n\n      async function playDemoSequence/);
+
+  assert.ok(seekBody, "seekMediaToLevel should exist");
+  assert.ok(playLevelBody, "playLevel should exist");
+  assert.match(html, /function waitForMediaReady\(media\)/);
+  assert.match(seekBody[1], /media\.pause\(\);/);
+  assert.match(seekBody[1], /media\.currentTime = segment\.startSeconds;/);
+  assert.match(seekBody[1], /await waitForMediaSeek\(media\);/);
+  assert.doesNotMatch(seekBody[1], /media\.src =/);
+  assert.doesNotMatch(seekBody[1], /media\.load\(\);/);
+  assert.match(playLevelBody[1], /await seekMediaToLevel\(media, amplitude\);/);
+  assert.ok(
+    playLevelBody[1].indexOf("await seekMediaToLevel(media, amplitude);") <
+      playLevelBody[1].indexOf("await media.play();"),
+    "segment seek should finish before playback"
+  );
+});
+
+test("public test page cancels stale level changes during rapid clicks", () => {
+  const html = fs.readFileSync(path.join(root, "test-page.html"), "utf8");
+  const playLevelBody = html.match(/async function playLevel\(media, amplitude, label, keepPulse\) \{([\s\S]*?)\n\n      async function playDemoSequence/);
+
+  assert.ok(playLevelBody, "playLevel should exist");
+  assert.match(html, /let playRequestId = 0;/);
+  assert.match(playLevelBody[1], /const requestId = \+\+playRequestId;/);
+  assert.match(playLevelBody[1], /if \(requestId !== playRequestId\) return;/);
+  assert.match(html, /playRequestId \+= 1;/);
 });
 test("public test page reports the selected level before awaiting playback", () => {
   const html = fs.readFileSync(path.join(root, "test-page.html"), "utf8");
@@ -479,7 +676,7 @@ test("public test page generated PCM keeps requested quiet loud and very loud dB
   assert.ok(quiet.peak < loud.peak, "generated quiet PCM peak should stay below loud PCM peak");
   assert.ok(loud.peak < veryLoud.peak, "generated loud PCM peak should stay below very loud PCM peak");
   assert.ok(Math.abs(quiet.rmsDb - -63) <= 0.2);
-  assert.ok(Math.abs(veryLoud.rmsDb - -3) <= 0.1);
+  assert.ok(Math.abs(veryLoud.rmsDb - -4) <= 0.1);
   assert.ok(Math.abs(loud.rmsDb - -43) <= 0.2);
 });
 
@@ -519,7 +716,7 @@ test("public test page requested levels are recoverable by the stream profile", 
   assert.ok(targetGainFor("QUIET") > 40, "quiet level should be recoverable even from -63 dB");
   assert.ok(targetGainFor("LOUD") > 20, "middle level should be boosted toward target");
   assert.ok(targetGainFor("LOUD") < profile.maxBoostDb, "middle level should stay below max boost");
-  assert.ok(targetGainFor("VERY_LOUD") < 0, "-3 dB very loud level should trigger reduction");
+  assert.ok(targetGainFor("VERY_LOUD") < 0, "very loud level should trigger reduction");
   assert.ok(targetGainFor("VERY_LOUD") > profile.maxReductionDb, "very loud reduction should stay inside max reduction");
 });
 

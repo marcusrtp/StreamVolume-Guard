@@ -549,11 +549,13 @@
 
     try {
       await Settings.saveSettings(nextSettings);
-      const refreshResult = await refreshOpenTabs();
       renderWarnings(nextSettings);
+      const refreshResult = await refreshOpenTabs();
 
       if (!refreshResult.ok) {
-        throw new Error(refreshResult.error || "refresh failed");
+        setApplyButtonState("error");
+        setSaveState(i18n("optionsApplyErrorStatus", "réglages enregistrés, envoi impossible"));
+        return;
       }
 
       if (Number(refreshResult.refreshed || 0) > 0) {
@@ -565,7 +567,7 @@
       }
     } catch (error) {
       setApplyButtonState("error");
-      setSaveState(i18n("optionsApplyErrorStatus", "réglages enregistrés, envoi impossible"));
+      setSaveState(i18n("optionsSaveErrorStatus", "sauvegarde impossible"));
     }
 
     root.setTimeout(() => {

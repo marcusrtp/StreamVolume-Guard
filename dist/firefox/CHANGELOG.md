@@ -4,6 +4,22 @@ Toutes les modifications notables de StreamVolume Guard sont documentées ici.
 
 Le changelog public est volontairement consolidé : les micro-corrections faites avant la première vraie publication sont regroupées dans des versions lisibles pour les testeurs.
 
+## [0.1.3] - 2026-06-27
+
+### Corrigé
+
+- Stabilisation de la page de test audio brute : les boutons `Son faible`, `Son fort` et `Son très fort` utilisent désormais un seul WAV continu avec segments internes.
+- Suppression du changement de source audio entre `Son très fort` et `Son fort`, pour réduire les grésillements audibles sans extension activée.
+- Ajout de fondus et de protections contre les clics rapides sur la page de test.
+- Alignement du smoke test navigateur avec les niveaux encodés dans les WAV, au lieu d'utiliser `audio.volume` pour simuler les écarts.
+
+### Vérification
+
+- Tests unitaires Node.
+- Smoke test navigateur réel avec extension chargée.
+- Tests de packaging multi-navigateurs.
+- Builds Chromium, Firefox, Firefox Android et source Safari régénérés.
+
 ## [0.1.2] - 2026-06-26
 
 ### Ajouté

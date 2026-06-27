@@ -8,7 +8,7 @@ Sa promesse est simple : réduire les écarts de volume afin qu'un son trop fort
 
 ## Dernière Version
 
-Version actuelle : `0.1.2`.
+Version actuelle : `0.1.3`.
 
 Statut : MVP technique (version minimale viable) prêt pour tests manuels, retours streamers et partage GitHub.
 
@@ -19,7 +19,7 @@ Voir `CHANGELOG.md` pour comprendre rapidement ce qui a changé et pourquoi.
 Notes de release prêtes à publier :
 
 ```text
-store/release-0.1.2.md
+store/release-0.1.3.md
 ```
 
 ## Compatibilité Actuelle
@@ -83,6 +83,8 @@ Tous les réglages restent locaux. Il n'y a pas de compte utilisateur, pas de sy
 4. Charge le dossier `dist/` adapté à ton navigateur.
 
 Quand une release GitHub est disponible, préfère les fichiers `.zip` de la release : ils contiennent directement le build adapté au navigateur.
+
+La release fournit aussi un zip du projet complet, par exemple `streamvolume-guard-project-0.1.3.zip`, pour récupérer le code source, la documentation, la page de test et les builds `dist/` dans une seule archive.
 
 ## Installation Dans Chrome Ou Brave
 

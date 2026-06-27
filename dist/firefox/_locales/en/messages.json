@@ -375,5 +375,8 @@
   },
   "optionsApplyErrorStatus": {
     "message": "settings saved, sending failed"
+  },
+  "optionsSaveErrorStatus": {
+    "message": "save failed"
   }
 }

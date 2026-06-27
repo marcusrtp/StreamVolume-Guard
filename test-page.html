@@ -154,8 +154,8 @@
       </div>
       <p id="status">prêt</p>
       <p>
-        Cette page crée trois niveaux précis : faible à -63.0 dB, fort à -43.0 dB, puis très fort à -3.0 dB.
-        Le très fort est volontairement beaucoup plus haut que le fort pour que l'écart soit net à l'oreille.
+        Cette page crée trois niveaux précis : faible à -63.0 dB, fort à -43.0 dB, puis très fort autour de -4.0 dB RMS.
+        Le très fort garde environ 1 dB de marge sous le pic numérique maximum pour rester fort sans grésiller.
       </p>
 
       <div id="extensionResults" class="demo-box live-results">
@@ -211,22 +211,33 @@
       const extensionRisk = document.getElementById("extensionRisk");
       const extensionMedia = document.getElementById("extensionMedia");
       const extensionPeaks = document.getElementById("extensionPeaks");
-      const TEST_TONE_SECONDS = 8;
+      const TEST_TONE_SECONDS = 10;
       const PULSE_INTERVAL_MS = 8000;
       const DEMO_STEP_MS = 8000;
       const VOLUME_RAMP_MS = 45;
+      const MAX_VOLUME_RAMP_MS = 220;
+      const VOLUME_RAMP_DB_FOR_MAX_MS = 40;
+      const TONE_EDGE_FADE_MS = 12;
+      const SEGMENT_LEAD_IN_SECONDS = 0.08;
       const QUIET_AMPLITUDE = 0.001;
       const LOUD_AMPLITUDE = 0.01001186529700907;
-      const VERY_LOUD_AMPLITUDE = 1;
-      const currentUrls = new Map();
+      const VERY_LOUD_AMPLITUDE = 0.8912509381337456;
+      const TEST_TONE_SEGMENTS = [
+        { amplitude: QUIET_AMPLITUDE, startSeconds: 0 },
+        { amplitude: LOUD_AMPLITUDE, startSeconds: TEST_TONE_SECONDS },
+        { amplitude: VERY_LOUD_AMPLITUDE, startSeconds: TEST_TONE_SECONDS * 2 }
+      ];
       const volumeRampTimers = new WeakMap();
       let pulseTimer;
       let demoTimer;
       let countdownTimer;
+      let playRequestId = 0;
+      let continuousToneUrl = null;
 
-      function createSineWaveBlob(frequency, amplitude, durationSeconds) {
+      function createSegmentedSineWaveBlob(frequency, segments) {
         const sampleRate = 44100;
-        const sampleCount = sampleRate * durationSeconds;
+        const segmentSampleCount = sampleRate * TEST_TONE_SECONDS;
+        const sampleCount = segmentSampleCount * segments.length;
         const bytesPerSample = 2;
         const dataSize = sampleCount * bytesPerSample;
         const buffer = new ArrayBuffer(44 + dataSize);
@@ -246,9 +257,17 @@
         writeAscii(view, 36, "data");
         view.setUint32(40, dataSize, true);
 
+        const edgeFadeSamples = Math.max(1, Math.round((sampleRate * TONE_EDGE_FADE_MS) / 1000));
+        const leadInSamples = Math.max(1, Math.round(sampleRate * SEGMENT_LEAD_IN_SECONDS));
+
         for (let index = 0; index < sampleCount; index += 1) {
-          const sample = Math.sin((2 * Math.PI * frequency * index) / sampleRate);
-          const value = Math.max(-1, Math.min(1, sample * amplitude));
+          const segmentIndex = Math.min(segments.length - 1, Math.floor(index / segmentSampleCount));
+          const segmentSampleIndex = index - segmentIndex * segmentSampleCount;
+          const sample = Math.sin((2 * Math.PI * frequency * segmentSampleIndex) / sampleRate);
+          const fadeIn = Math.min(1, Math.max(0, segmentSampleIndex - leadInSamples) / edgeFadeSamples);
+          const fadeOut = Math.min(1, (segmentSampleCount - 1 - segmentSampleIndex) / edgeFadeSamples);
+          const edgeFade = Math.min(fadeIn, fadeOut);
+          const value = Math.max(-1, Math.min(1, sample * segments[segmentIndex].amplitude * edgeFade));
           view.setInt16(44 + index * bytesPerSample, value * 32767, true);
         }
 
@@ -289,75 +308,197 @@
         updateExtensionResults(data.status);
       });
 
-      function stopMedia(media) {
-        const rampTimer = volumeRampTimers.get(media);
-        if (rampTimer) {
-          cancelAnimationFrame(rampTimer);
-          volumeRampTimers.delete(media);
+      async function stopMedia(media) {
+        cancelVolumeRamp(media);
+        await fadeOutAndPause(media);
+      }
+
+      function getContinuousToneUrl() {
+        if (!continuousToneUrl) {
+          continuousToneUrl = URL.createObjectURL(createSegmentedSineWaveBlob(440, TEST_TONE_SEGMENTS));
         }
-        media.pause();
+        return continuousToneUrl;
       }
 
-      function releaseMediaUrl(media) {
-        const currentUrl = currentUrls.get(media);
-        if (!currentUrl) return;
-        URL.revokeObjectURL(currentUrl);
-        currentUrls.delete(media);
+      function segmentForAmplitude(amplitude) {
+        return TEST_TONE_SEGMENTS.find((segment) => segment.amplitude === amplitude) || TEST_TONE_SEGMENTS[0];
       }
 
-      function ensureMediaSource(media) {
-        if (currentUrls.has(media)) return;
-        const nextUrl = URL.createObjectURL(createSineWaveBlob(440, 1, TEST_TONE_SECONDS));
-        currentUrls.set(media, nextUrl);
-        media.src = nextUrl;
+      function ensureContinuousMediaSource(media) {
+        if (media.dataset.testContinuousSource === "true" && media.getAttribute("src")) return;
+        media.volume = 0;
+        media.src = getContinuousToneUrl();
+        media.dataset.testContinuousSource = "true";
         media.loop = true;
+        media.load();
       }
 
-      function rampMediaVolume(media, targetVolume, durationMs = VOLUME_RAMP_MS) {
-        const previousTimer = volumeRampTimers.get(media);
-        if (previousTimer) {
-          cancelAnimationFrame(previousTimer);
+      function waitForMediaReady(media) {
+        if (media.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          return Promise.resolve();
         }
 
+        return new Promise((resolve, reject) => {
+          function cleanup() {
+            media.removeEventListener("loadeddata", handleReady);
+            media.removeEventListener("canplay", handleReady);
+            media.removeEventListener("error", handleError);
+          }
+
+          function handleReady() {
+            cleanup();
+            resolve();
+          }
+
+          function handleError() {
+            cleanup();
+            reject(media.error || new Error("media load failed"));
+          }
+
+          media.addEventListener("loadeddata", handleReady, { once: true });
+          media.addEventListener("canplay", handleReady, { once: true });
+          media.addEventListener("error", handleError, { once: true });
+        });
+      }
+
+      function waitForMediaSeek(media) {
+        if (!media.seeking) {
+          return Promise.resolve();
+        }
+
+        return new Promise((resolve, reject) => {
+          function cleanup() {
+            media.removeEventListener("seeked", handleSeeked);
+            media.removeEventListener("error", handleError);
+          }
+
+          function handleSeeked() {
+            cleanup();
+            resolve();
+          }
+
+          function handleError() {
+            cleanup();
+            reject(media.error || new Error("media seek failed"));
+          }
+
+          media.addEventListener("seeked", handleSeeked, { once: true });
+          media.addEventListener("error", handleError, { once: true });
+        });
+      }
+
+      async function seekMediaToLevel(media, amplitude) {
+        const segment = segmentForAmplitude(amplitude);
+        media.pause();
+        media.volume = 0;
+        await waitForMediaReady(media);
+        media.currentTime = segment.startSeconds;
+        await waitForMediaSeek(media);
+      }
+
+      function clearMediaSource(media) {
+        media.removeAttribute("src");
+        delete media.dataset.testContinuousSource;
+        media.load();
+      }
+
+      function releaseToneUrls() {
+        if (!continuousToneUrl) return;
+        URL.revokeObjectURL(continuousToneUrl);
+        continuousToneUrl = null;
+      }
+
+      function cancelVolumeRamp(media) {
+        const previousRamp = volumeRampTimers.get(media);
+        if (!previousRamp) return;
+        cancelAnimationFrame(previousRamp.frame);
+        previousRamp.resolve();
+        volumeRampTimers.delete(media);
+      }
+
+      function calculateVolumeRampDuration(startVolume, targetVolume) {
+        const safeStart = Math.max(0.0001, startVolume);
+        const safeTarget = Math.max(0.0001, targetVolume);
+        const jumpDb = Math.abs(20 * Math.log10(safeTarget / safeStart));
+        const progress = Math.min(1, jumpDb / VOLUME_RAMP_DB_FOR_MAX_MS);
+        return Math.round(VOLUME_RAMP_MS + (MAX_VOLUME_RAMP_MS - VOLUME_RAMP_MS) * progress);
+      }
+
+      function rampMediaVolume(media, targetVolume, durationMs) {
+        cancelVolumeRamp(media);
         const startVolume = media.paused ? 0 : media.volume;
+        durationMs = calculateVolumeRampDuration(startVolume, targetVolume);
         const startedAt = performance.now();
         media.volume = startVolume;
 
         return new Promise((resolve) => {
+          const rampState = { frame: 0, resolve };
+
           function step(now) {
             const progress = Math.min(1, (now - startedAt) / durationMs);
             const eased = (1 - Math.cos(Math.PI * progress)) / 2;
             media.volume = startVolume + (targetVolume - startVolume) * eased;
 
             if (progress < 1) {
-              volumeRampTimers.set(media, requestAnimationFrame(step));
+              rampState.frame = requestAnimationFrame(step);
+              volumeRampTimers.set(media, rampState);
               return;
             }
 
             media.volume = targetVolume;
-            volumeRampTimers.delete(media);
+            if (volumeRampTimers.get(media) === rampState) {
+              volumeRampTimers.delete(media);
+            }
             resolve();
           }
 
-          volumeRampTimers.set(media, requestAnimationFrame(step));
+          rampState.frame = requestAnimationFrame(step);
+          volumeRampTimers.set(media, rampState);
         });
       }
 
+      function prepareMediaVolumeBeforePlay(media) {
+        if (media.paused || media.ended || media.readyState === 0) {
+          media.volume = 0;
+        }
+      }
+
+      async function fadeOutAndPause(media) {
+        if (media.paused) {
+          media.volume = 0;
+          return;
+        }
+
+        await rampMediaVolume(media, 0);
+        media.pause();
+      }
+
       async function playLevel(media, amplitude, label, keepPulse) {
+        const requestId = ++playRequestId;
         if (!keepPulse) {
           clearInterval(pulseTimer);
           clearInterval(demoTimer);
           clearInterval(countdownTimer);
         }
         const otherMedia = media === audio ? rawAudio : audio;
-        stopMedia(otherMedia);
-        ensureMediaSource(media);
+        await stopMedia(otherMedia);
+        if (requestId !== playRequestId) return;
+        if (!media.paused) {
+          await rampMediaVolume(media, 0);
+          if (requestId !== playRequestId) return;
+        }
+        ensureContinuousMediaSource(media);
+        await seekMediaToLevel(media, amplitude);
+        if (requestId !== playRequestId) return;
         status.textContent = label;
 
         try {
+          prepareMediaVolumeBeforePlay(media);
           await media.play();
-          await rampMediaVolume(media, amplitude);
+          if (requestId !== playRequestId) return;
+          await rampMediaVolume(media, 1);
         } catch (error) {
+          if (requestId !== playRequestId) return;
           status.textContent = `${label} - lecture bloquée, clique à nouveau`;
           console.warn("StreamVolume Guard test audio playback was blocked", error);
         }
@@ -443,20 +584,17 @@
         status.textContent = "alternance active - chaque palier dure 8 s";
         await playNextAlternationStep();
       });
-      document.getElementById("stopButton").addEventListener("click", () => {
+      document.getElementById("stopButton").addEventListener("click", async () => {
+        playRequestId += 1;
         clearInterval(pulseTimer);
         clearInterval(demoTimer);
         clearInterval(countdownTimer);
-        stopMedia(audio);
-        stopMedia(rawAudio);
-        audio.removeAttribute("src");
-        rawAudio.removeAttribute("src");
-        audio.load();
-        rawAudio.load();
-        releaseMediaUrl(audio);
-        releaseMediaUrl(rawAudio);
+        await Promise.all([stopMedia(audio), stopMedia(rawAudio)]);
+        clearMediaSource(audio);
+        clearMediaSource(rawAudio);
         status.textContent = "stop";
       });
+      window.addEventListener("pagehide", releaseToneUrls);
     </script>
   </body>
 </html>

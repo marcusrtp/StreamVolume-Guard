@@ -80,9 +80,12 @@
 
     const settings = Settings.getSettingsForDomain(message.settings, message.site);
     const status = baseStatus(tabId, message.site, settings);
+    let stream = null;
+    let audio = null;
+    let normalizer = null;
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           mandatory: {
             chromeMediaSource: "tab",
@@ -91,12 +94,12 @@
         },
         video: false
       });
-      const audio = new Audio();
+      audio = new Audio();
       audio.srcObject = stream;
       audio.autoplay = true;
       audio.volume = 1;
 
-      const normalizer = Normalizer.createMediaNormalizer(audio, settings, {
+      normalizer = Normalizer.createMediaNormalizer(audio, settings, {
         onState(nextState) {
           updateStatus(tabId, {
             gainDb: nextState.gainDb,
@@ -121,6 +124,23 @@
       postStatus(tabId, status);
       return { ok: true, status };
     } catch (error) {
+      if (captures.has(tabId)) {
+        stopCapture(tabId);
+      } else {
+        try {
+          if (normalizer) normalizer.stop();
+        } catch (cleanupError) {
+          // Best-effort cleanup after a failed capture startup.
+        }
+        try {
+          if (stream) stream.getTracks().forEach((track) => track.stop());
+        } catch (cleanupError) {
+          // Best-effort cleanup after a failed capture startup.
+        }
+        if (audio) {
+          audio.srcObject = null;
+        }
+      }
       const failedStatus = { ...status, ok: false, enabled: false, mediaProcessed: 0, lastError: error.message };
       postStatus(tabId, failedStatus);
       return { ok: false, error: error.message, status: failedStatus };

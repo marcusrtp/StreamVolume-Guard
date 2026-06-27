@@ -94,6 +94,8 @@
     compressorEnabled: true,
     panicGainDb: -30
   };
+  const TARGET_RMS_MIN_DB = -36;
+  const TARGET_RMS_MAX_DB = -14;
 
   let memorySettings = { ...DEFAULT_SETTINGS };
 
@@ -165,7 +167,7 @@
 
     if (!PROFILES[merged.activeProfile]) merged.activeProfile = DEFAULT_SETTINGS.activeProfile;
     merged.targetRmsDb = Number.isFinite(Number(merged.targetRmsDb))
-      ? Number(merged.targetRmsDb)
+      ? Math.max(TARGET_RMS_MIN_DB, Math.min(TARGET_RMS_MAX_DB, Number(merged.targetRmsDb)))
       : PROFILES[merged.activeProfile].targetRmsDb;
     if (defaultStreamTargetNeedsMigration) {
       merged.targetRmsDb = DEFAULT_SETTINGS.targetRmsDb;

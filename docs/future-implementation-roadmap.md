@@ -20,6 +20,28 @@ Déjà livré :
 - [ ] Ajouter des captures d'écran propres pour GitHub et stores.
 - [ ] Ajouter une vérification manuelle par navigateur avant chaque release publique.
 
+### Stabiliser Les Zones Critiques
+
+Le rapport Graphify identifie les zones à surveiller en priorité :
+
+- `background.js`
+- `content.js`
+- `audio/normalizer.js`
+- `storage/settings.js`
+- `offscreen/offscreen.js`
+- `options/options.js`
+
+Vérification ciblée recommandée :
+
+| Priorité | Zone | Pourquoi |
+| --- | --- | --- |
+| 1 | `storage/settings.js` | Une erreur de configuration peut casser tout le comportement. |
+| 2 | `audio/normalizer.js` | Cœur produit : normalisation audio. |
+| 3 | `content.js` | Détection média, risque de double traitement. |
+| 4 | `background.js` | Permissions, injection, capture onglet. |
+| 5 | `offscreen/offscreen.js` | Fallback Chromium sensible. |
+| 6 | `options/options.js` | Module dense, faible cohésion, risque de bugs UI. |
+
 Minimum viable : garder le projet installable par un testeur non technique.
 
 ## Priorité 1 - Valider `Capture Onglet` Sur Sites Réels

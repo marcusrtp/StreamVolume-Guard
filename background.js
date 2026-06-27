@@ -326,23 +326,39 @@
 
     const contentResponse = await sendMessage(tab.id, { type: "WLG_SET_PANIC", active });
     const captureStatus = getCaptureStatus(tab.id);
+    let updatedCaptureStatus = null;
     if (captureStatus && captureStatus.enabled) {
-      await sendRuntimeMessage({ target: "offscreen", type: "WLG_SET_CAPTURE_PANIC", tabId: tab.id, active });
+      const captureResponse = await sendRuntimeMessage({ target: "offscreen", type: "WLG_SET_CAPTURE_PANIC", tabId: tab.id, active });
+      updatedCaptureStatus = captureResponse && captureResponse.status ? captureResponse.status : null;
     }
 
-    return mergeStatus(tab, contentResponse);
+    return mergeStatus(tab, updatedCaptureStatus || contentResponse);
   }
 
   async function refreshTab(tab) {
     if (!tab || !tab.id) return { ok: true };
     const contentResponse = await sendMessage(tab.id, { type: "WLG_REFRESH_SETTINGS" });
     const captureStatus = getCaptureStatus(tab.id);
+    let updatedCaptureStatus = null;
     if (captureStatus && captureStatus.enabled) {
       const site = captureStatus.site || getDomainFromUrl(tab.url);
-      const settings = Settings.getSettingsForDomain(await Settings.getSettings(), site);
-      await sendRuntimeMessage({ target: "offscreen", type: "WLG_UPDATE_CAPTURE_SETTINGS", tabId: tab.id, settings, site });
+      const savedSettings = await Settings.getSettings();
+      if (Settings.isDomainExcluded(site, savedSettings)) {
+        await sendRuntimeMessage({ target: "offscreen", type: "WLG_STOP_TAB_CAPTURE", tabId: tab.id });
+        captureStatuses.delete(tab.id);
+        return mergeStatus(tab, {
+          ...contentResponse,
+          enabled: false,
+          excluded: true,
+          sourceType: "none",
+          site
+        });
+      }
+      const settings = Settings.getSettingsForDomain(savedSettings, site);
+      const captureResponse = await sendRuntimeMessage({ target: "offscreen", type: "WLG_UPDATE_CAPTURE_SETTINGS", tabId: tab.id, settings, site });
+      updatedCaptureStatus = captureResponse && captureResponse.status ? captureResponse.status : null;
     }
-    return mergeStatus(tab, contentResponse);
+    return mergeStatus(tab, updatedCaptureStatus || contentResponse);
   }
 
   async function refreshActiveTab() {

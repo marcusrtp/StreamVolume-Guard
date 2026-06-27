@@ -58,10 +58,10 @@
     <script src="../content.js"></script>
 
     <script>
-      let objectUrl;
+      const objectUrls = new Map();
       const QUIET_AMPLITUDE = 0.001;
       const LOUD_AMPLITUDE = 0.01001186529700907;
-      const VERY_LOUD_AMPLITUDE = 1;
+      const VERY_LOUD_AMPLITUDE = 0.8912509381337456;
 
       function wait(ms) {
         return new Promise((resolve) => setTimeout(resolve, ms));
@@ -104,20 +104,58 @@
       }
 
       async function ensureAudioElement() {
-        return playSmokeAudio(0.9, 8);
+        return playSmokeAudio(VERY_LOUD_AMPLITUDE, 8);
       }
 
       async function playSmokeAudio(amplitude, durationSeconds) {
         const audio = document.getElementById("smokeAudio");
-        if (!objectUrl) {
-          objectUrl = URL.createObjectURL(createSineWaveBlob(440, 1, durationSeconds || 8));
-          audio.src = objectUrl;
-          audio.loop = true;
+        const key = `${amplitude}:${durationSeconds || 8}`;
+        if (!objectUrls.has(key)) {
+          objectUrls.set(key, URL.createObjectURL(createSineWaveBlob(440, amplitude, durationSeconds || 8)));
         }
 
-        audio.volume = amplitude;
+        if (audio.dataset.smokeToneKey !== key) {
+          audio.pause();
+          audio.volume = 0;
+          audio.src = objectUrls.get(key);
+          audio.dataset.smokeToneKey = key;
+          audio.loop = true;
+          audio.load();
+          await waitForMediaReady(audio);
+          audio.currentTime = 0;
+        }
+
+        audio.volume = 1;
         await audio.play();
         return audio;
+      }
+
+      function waitForMediaReady(audio) {
+        if (audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          return Promise.resolve();
+        }
+
+        return new Promise((resolve, reject) => {
+          function cleanup() {
+            audio.removeEventListener("loadeddata", handleReady);
+            audio.removeEventListener("canplay", handleReady);
+            audio.removeEventListener("error", handleError);
+          }
+
+          function handleReady() {
+            cleanup();
+            resolve();
+          }
+
+          function handleError() {
+            cleanup();
+            reject(audio.error || new Error("smoke media load failed"));
+          }
+
+          audio.addEventListener("loadeddata", handleReady, { once: true });
+          audio.addEventListener("canplay", handleReady, { once: true });
+          audio.addEventListener("error", handleError, { once: true });
+        });
       }
 
       function createSineWaveBlob(frequency, amplitude, durationSeconds) {
@@ -281,7 +319,7 @@
           const equalizationLevels = [
             { name: "quiet", amplitude: QUIET_AMPLITUDE, expectedRmsDb: -63, minGainDb: 30, maxGainDb: 48 },
             { name: "loud", amplitude: LOUD_AMPLITUDE, expectedRmsDb: -43, minGainDb: 18, maxGainDb: 34 },
-            { name: "veryLoud", amplitude: VERY_LOUD_AMPLITUDE, expectedRmsDb: -3, minGainDb: -24, maxGainDb: -8 }
+            { name: "veryLoud", amplitude: VERY_LOUD_AMPLITUDE, expectedRmsDb: -4, minGainDb: -24, maxGainDb: -8 }
           ];
 
           for (const level of equalizationLevels) {
@@ -359,7 +397,7 @@
           await playSmokeAudio(VERY_LOUD_AMPLITUDE, 8);
           await waitFor(() => {
             const status = WLG.Content.getStatus();
-            return Math.abs(status.rmsDb - -3) <= 3.5 &&
+            return Math.abs(status.rmsDb - -4) <= 3.5 &&
               status.outputRmsDb > -21.7 &&
               status.outputRmsDb < -20.3
               ? status
