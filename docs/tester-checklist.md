@@ -113,6 +113,12 @@ http://127.0.0.1:8787/test-page.html
 
 ## 5. Tests Sur Sites Réels
 
+Pour une validation plus structurée, utiliser aussi :
+
+```text
+docs/real-platform-test-plan.md
+```
+
 Tester au minimum :
 
 - [ ] YouTube.

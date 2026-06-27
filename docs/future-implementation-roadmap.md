@@ -11,14 +11,17 @@ Déjà livré :
 - [x] Diagnostics streamer de base : média détecté, pipeline actif, source active, exclusions, erreur récente.
 - [x] Migration simple des réglages dans `storage/settings.js`.
 - [x] Politique privacy-first : pas de tracker, pas de collecte, pas de télémétrie automatique.
+- [x] Politique de confidentialité publique dans `docs/privacy-policy.md`.
 - [x] Export diagnostic JSON local depuis les Options.
 - [x] Builds `dist/` commités pour installation sans Node.js.
+- [x] Script de zips publics dans `tools/package-release.js`.
+- [x] Plan de test plateformes réelles dans `docs/real-platform-test-plan.md`.
 
 À renforcer ensuite :
 
 - [ ] Ajouter une page `docs/known-issues.md` avec les bugs confirmés et contournements.
 - [ ] Ajouter des captures d'écran propres pour GitHub et stores.
-- [ ] Ajouter une vérification manuelle par navigateur avant chaque release publique.
+- [ ] Exécuter et compléter le plan de test plateformes réelles avant d'annoncer une compatibilité forte.
 
 ### Stabiliser Les Zones Critiques
 
@@ -167,8 +170,8 @@ Raison : le traitement audio desktop demande de capturer et rerouter le son syst
 
 ## Ordre Recommandé
 
-1. Valider `Capture onglet` sur Chrome, Brave et Edge avec Spotify, Deezer, Twitch, Kick et YouTube.
-2. Rendre les profils par plateforme visibles et modifiables dans Options.
+1. Exécuter `docs/real-platform-test-plan.md` sur YouTube, Twitch, TikTok, Kick, Spotify web et Deezer web.
+2. Valider `Capture onglet` sur Chrome, Brave et Edge avec Spotify, Deezer, Twitch, Kick et YouTube.
 3. Rendre Panic utilisable sans ouvrir la popup.
 4. Améliorer la calibration OBS avec une procédure guidée.
 5. Ajouter Speech Priority.

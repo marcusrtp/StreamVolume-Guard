@@ -1870,6 +1870,30 @@ test("english and french locale files contain diagnostic export messages", () =>
   });
 });
 
+test("public docs expose privacy policy, platform validation and release packaging", () => {
+  const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
+  const testerChecklist = fs.readFileSync(path.join(root, "docs", "tester-checklist.md"), "utf8");
+  const roadmap = fs.readFileSync(path.join(root, "docs", "future-implementation-roadmap.md"), "utf8");
+  const privacy = fs.readFileSync(path.join(root, "docs", "privacy-policy.md"), "utf8");
+  const realPlatformPlan = fs.readFileSync(path.join(root, "docs", "real-platform-test-plan.md"), "utf8");
+  const packageRelease = fs.readFileSync(path.join(root, "tools", "package-release.js"), "utf8");
+
+  assert.match(readme, /docs\/privacy-policy\.md/);
+  assert.match(readme, /docs\/real-platform-test-plan\.md/);
+  assert.match(readme, /node tools\/package-release\.js/);
+  assert.match(testerChecklist, /docs\/real-platform-test-plan\.md/);
+  assert.match(roadmap, /tools\/package-release\.js/);
+  assert.match(roadmap, /docs\/privacy-policy\.md/);
+  assert.match(privacy, /Aucun enregistrement audio/);
+  assert.match(privacy, /aucune telemetrie automatique/i);
+  assert.match(realPlatformPlan, /YouTube/);
+  assert.match(realPlatformPlan, /Spotify web/);
+  assert.match(realPlatformPlan, /Deezer web/);
+  assert.match(packageRelease, /release-assets/);
+  assert.match(packageRelease, /Compress-Archive/);
+  assert.match(packageRelease, /projectEntries/);
+});
+
 test("public docs do not advertise removed options controls", () => {
   const docs = [
     "README.md",

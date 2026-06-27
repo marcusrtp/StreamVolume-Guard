@@ -108,6 +108,8 @@ Les zips de release contiennent aussi les fichiers utiles aux testeurs :
 - `docs/tester-checklist.md` pour suivre les tests dans le bon ordre ;
 - `docs/streamer-quickstart-60s.md` pour un test rapide avant live ;
 - `docs/bug-report-template.md` pour envoyer un retour propre ;
+- `docs/privacy-policy.md` pour comprendre exactement ce qui est stocké ou non ;
+- `docs/real-platform-test-plan.md` pour valider YouTube, Twitch, TikTok, Kick, Spotify web et Deezer web ;
 - `docs/cross-browser-deployment.md` pour les détails multi-navigateurs.
 
 ## Installation Dans Chrome Ou Brave
@@ -273,6 +275,16 @@ Guide complet :
 docs/cross-browser-deployment.md
 ```
 
+## Politique De Confidentialité
+
+La politique complète est disponible ici :
+
+```text
+docs/privacy-policy.md
+```
+
+Résumé : StreamVolume Guard ne collecte pas l'audio, n'envoie pas de télémétrie automatique, ne suit pas l'historique et ne dépend d'aucun serveur pour la V1. Les réglages restent dans le stockage local du navigateur.
+
 ## Page De Test Locale
 
 Flux recommandé :
@@ -411,6 +423,7 @@ Depuis le dossier du projet :
 ```powershell
 node tools/render-social-preview.js
 node tools/build-targets.js
+node tools/package-release.js
 node tests/unit.test.js
 node tests/build-targets.test.js
 node tests/dist-packages.test.js
@@ -425,6 +438,8 @@ node --check options/options.js
 Aucune installation de package n'est nécessaire.
 
 `tools/build-targets.js` génère les dossiers `dist/chromium`, `dist/firefox`, `dist/firefox-android` et `dist/safari-source` sans dépendance externe.
+
+`tools/package-release.js` génère les zips publics dans `release-assets/` à partir des dossiers `dist/`. Il évite de refaire la commande PowerShell à la main et garde `.git`, `.agents`, `.codex`, `.docs`, `graphify-out` et `release-assets` hors du zip projet.
 
 `tools/render-social-preview.js` génère `assets/social-preview.png` sans dépendance externe. `assets/social-preview.html` reste une maquette lisible de la carte.
 
@@ -462,6 +477,12 @@ docs/tester-checklist.md
 ```
 
 Elle couvre l'installation, les tests audio, les tests OBS, les bugs à reporter, l'export du diagnostic JSON local et les logs console optionnels.
+
+Pour valider les plateformes réelles dans un ordre utile :
+
+```text
+docs/real-platform-test-plan.md
+```
 
 ## Roadmap D'implémentation
 

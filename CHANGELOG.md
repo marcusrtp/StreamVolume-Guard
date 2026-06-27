@@ -34,6 +34,9 @@ Le changelog public est volontairement consolidé : les micro-corrections faites
 - Rattrapage plus rapide des contenus web réalistes après compression, pour éviter qu'un son fort ou très fort reste perçu trop faible en condition OBS réelle.
 - Rattrapage du son faible après un son très fort rendu plus direct : le niveau revient autour de `-21 dB RMS` / `-18 dB Peak OBS estimé` en environ une seconde dans le smoke navigateur.
 - Capteur `Peak OBS estimé` stabilisé pendant les transitions pour éviter d'afficher un pic obsolète au moment où la page change de niveau audio.
+- Ajout d'une politique de confidentialité publique dans `docs/privacy-policy.md`.
+- Ajout d'un plan de test plateformes réelles dans `docs/real-platform-test-plan.md`.
+- Ajout de `tools/package-release.js` pour générer les zips publics sans refaire les commandes PowerShell à la main.
 - Profils par plateforme clarifiés dans les options avec badge recommandé/personnalisé et sélection plus explicite.
 - Plage du `Volume moyen voulu` ajustée de `-48 dB` à `-15 dB` et champ de saisie clavier déplacé dans le bloc du slider.
 - Logo de la page de test aligné sur l'icône PNG officielle de l'extension pour garantir son affichage dans les builds distribués.
